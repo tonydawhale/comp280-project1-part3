@@ -2,40 +2,57 @@
 #include <string.h>
 
 #include "VirtualMemory.h"
+#include "Performance.h"
 #include "DRAM_Cache.h"
 
+
+struct TLBEntry {
+    int virtualPageNumber;
+    int physicalPageNumber;
+    bool valid;
+};
+
+struct TLBEntry TLBTable[2];
 bool vmEnabled = false;
+Address PageTableAddress;
+int roundRobin = 0;
 
-struct PageTableEntry PageTable[PAGE_TABLE_ENTRIES];
-
-struct PageTableEntry resolvePageData(Address addr) {
-    int virtualPageNumber = (addr >> 6) & 0x3FFFFFF;
-    struct PageTableEntry entry = PageTable[virtualPageNumber];
-    return entry;
-}
-
-int physcialAdress(struct PageTableEntry entry, Address addr) {
-    int physicalPageNumber = entry.physicalPageNumber;
-    int offset = addr & 0x3F;
-    int physicalAddress = (physicalPageNumber << 6) | offset;
-    return physicalAddress;
+int physcialAdress(Address virtualAddr) {
+    perfStartAddressTranslation(virtualAddr);
+    int physicalPageNumber = -1;
+    for (int i = 0; i < 2; i++) {
+        if (TLBTable[i].virtualPageNumber == virtualAddr >> 6) {
+            physicalPageNumber = TLBTable[i].physicalPageNumber;
+            perfTlbHit(physicalPageNumber & 0x3F);
+            roundRobin = (i + 1) % 2;
+            break;
+        }
+    }
+    if (physicalPageNumber == -1) {
+        physicalPageNumber = readWithCache((PageTableAddress + ((virtualAddr >> 6) * BYTES_PER_PTE)) & 0x3F);
+        TLBTable[!roundRobin ? 0 : 1].physicalPageNumber = physicalPageNumber;
+        perfTlbMiss(physicalPageNumber & 0x3F);
+    }
+    int phys = (physicalPageNumber << 6) | (virtualAddr & 0x3F);
+    perfEndAddressTranslation(phys);
+    return phys;
 }
 
 int vmRead(Address addr) {
     if (vmEnabled) {
-        struct PageTableEntry entry = resolvePageData(addr);
-        if (entry.valid) {
-            return readWithCache(physcialAdress(entry, addr));
-        } else {
-            // Load 
-        }
+        int physicalAddr = physcialAdress(addr);
+        return readWithCache(physicalAddr);
+    } else {
+        return readWithCache(addr);
     }
-    return -1;
 }
 
 void vmWrite(Address addr, int value) {
     if (vmEnabled) {
-
+        int physicalAddr = physcialAdress(addr);
+        writeWithCache(physicalAddr, value);
+    } else {
+        writeWithCache(addr, value);
     }
 }
 
@@ -44,5 +61,6 @@ void vmDisable() {
 }
 
 void vmEnable(Address pageTable) {
-
+    vmEnabled = true;
+    PageTableAddress = pageTable;
 }
