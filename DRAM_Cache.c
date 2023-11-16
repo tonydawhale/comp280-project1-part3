@@ -80,7 +80,6 @@ int readWithCache(Address addr) {
             readDramCacheLine(addr & ~0x1f, DRAMCache[set][line].data);
             DRAMCache[set][line].tag = addressTag;
             DRAMCache[set][line].valid = true;
-            DRAMCache[set][line].dirty = false;
             DRAMCache[set][line].timestamp = clock++;
             memcpy(&value, &DRAMCache[set][line].data[addr & 0x1f], 4);
             perfCacheMiss(addr, set, line, compulsory);
